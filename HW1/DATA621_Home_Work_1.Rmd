@@ -1,0 +1,288 @@
+---
+title: "DATA621_Home_Work_1"
+author: "Dilip Ganesan"
+date: "6/15/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+if (!require('tidyverse')) install.packages('tidyverse')
+library(tidyverse)
+if (!require('corrplot')) install.packages('corrplot')
+library(corrplot)
+if (!require('knitr')) install.packages('knitr')
+library(knitr)
+if (!require('ResourceSelection')) install.packages('ResourceSelection')
+library(ResourceSelection)
+
+
+options(max.print="999999999")
+opts_chunk$set(
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+
+```
+
+## Money Ball Training Data Set.
+
+##1.DATA EXPLORATION.(Exploratory Data Analysis EDA)
+
+As first set in our EDA, let us load the train data and do a summary statistics on the loaded dataset.
+
+```{r}
+# Let us load the train.csv data
+train = read.csv('moneyball-training-data.csv')
+test = read.csv('moneyball-evaluation-data.csv')
+
+summary(train)
+
+```
+
+
+
+Our Training data set contains 2276 Rows and 16 Varaibles. Out of these 16 Variables, TARGET_WINS is the dependent variable and rest are Independent Variables.
+All Variables are continous Variables.
+
+6 Variables has NAs in them, constituting a total of 3478 Missing Values in the entire data set.
+
+The Variables for whom which has NA values are 
+
+TEAM_BATTING_SO 
+
+TEAM_BASERUN_SB 
+
+TEAM_BASERUN_CS 
+
+TEAM_BATTING_HBP 
+
+TEAM_PITCHING_SO 
+
+TEAM_FIELDING_DP
+
+
+##Below we will plot the Histogram for all our Variables.
+
+```{r}
+ggtrain = reshape2::melt(train)
+ggplot(ggtrain, aes(value)) + facet_wrap(~variable, scales = 'free_x') +
+  geom_histogram(bins = 20)
+
+```
+
+We will see the linearity between Dependent Variable and Independent Variables.
+For us the dependent variable is TARGET_WIN and independent variable are rest.
+For KDEPAIRS, excluded variables which contained NA values
+
+```{r}
+
+battingdata  = train[c(  'TARGET_WINS', 'TEAM_BATTING_H', 'TEAM_BATTING_2B','TEAM_BATTING_3B','TEAM_BATTING_HR' ,'TEAM_BATTING_BB')]
+pitchingdata  = train[c(  'TARGET_WINS','TEAM_PITCHING_H','TEAM_PITCHING_HR','TEAM_PITCHING_BB')]
+fieldingdata  = train[c(  'TARGET_WINS', 'TEAM_FIELDING_E')]
+
+kdepairs(battingdata)
+
+```
+
+KDEPAIRS for Pitching Data Variables and TARGET_WINS
+
+```{r}
+
+kdepairs(pitchingdata)
+```
+
+KDEPAIRS for Fielding Data Variables and TARGET_WINS
+
+```{r}
+kdepairs(fieldingdata)
+
+```
+
+
+
+
+## 2.DATA PREPARATION 
+
+Removal of NAs
+
+For NA values in the variables, we will fill the values with Mean value. In case of TEAM_BATTING_HBP almost 80% of the data is NAs. So we will drop it for our modelling. 
+
+```{r}
+mean_CS = round(mean(train$TEAM_BASERUN_CS, na.rm=T))
+mean_SB = round(mean(train$TEAM_BASERUN_SB, na.rm=T))
+mean_DP = round(mean(train$TEAM_FIELDING_DP, na.rm=T))
+mean_BAT_SO =  round(mean(train$TEAM_BATTING_SO, na.rm=T)) 
+mean_PIT_SO =  round(mean(train$TEAM_PITCHING_SO, na.rm=T))  
+
+train$TEAM_BASERUN_CS[is.na(train$TEAM_BASERUN_CS)] = mean_CS
+train$TEAM_BASERUN_SB[is.na(train$TEAM_BASERUN_SB)] = mean_SB
+train$TEAM_FIELDING_DP[is.na(train$TEAM_FIELDING_DP)] = mean_DP
+train$TEAM_BATTING_SO[is.na(train$TEAM_BATTING_SO)] = mean_BAT_SO
+train$TEAM_PITCHING_SO[is.na(train$TEAM_PITCHING_SO)] = mean_PIT_SO
+
+summary(train)
+```
+
+But for TEAM_BATTING_HBP rest of the field does not contain NA values. 
+We would like to see the Histogram again after filling NAs will substitutes.
+
+
+```{r}
+newtrain = subset(train, select = -c(INDEX, TEAM_BATTING_HBP))
+ggtrain = reshape2::melt(newtrain)
+ggplot(ggtrain, aes(value)) + facet_wrap(~variable, scales = 'free_x') +
+  geom_histogram(bins = 20)
+
+```
+
+
+## Correlation between Independent Variables.
+
+We will see the linearity between Independent Variables, excluding Dependent Variable TARGET_WINS and other variables which has NA Values.
+
+```{r}
+IndData  = train[c('TEAM_BATTING_H', 'TEAM_BATTING_2B','TEAM_BATTING_3B','TEAM_BATTING_HR' ,'TEAM_BATTING_BB','TEAM_PITCHING_H','TEAM_PITCHING_HR','TEAM_PITCHING_BB', 'TEAM_FIELDING_E')]
+
+kdepairs(IndData)
+```
+
+
+From the above plot we can see the following strong correlation betweem some of Independent Variables.
+We will perform a Corr Plot between the Independent variables, which will give us more insight
+This is need to check Multicollinearity between independent variables. 
+
+```{r}
+multicol = subset(train, select = -c(INDEX, TARGET_WINS, TEAM_BATTING_HBP))
+ggcorr(multicol)
+
+```
+
+From the above analysis we can see TEAM_BATTING_HR and TEAM_PITCHIBG_H has a high correlation, Similarly those variables which has correlation coefficient > 0.5, we might have to drop.
+But for Initial analysis we will take all into consideration and will decide based on P-Value which one to reject when we do the model.
+
+## 3. BUILD MODELS
+
+### Model 1 : For first we will create a model with TARGET_WINS and all other independent variables we are interested with.
+
+```{r}
+
+## Raw data, all variables included in the model
+train = subset(train, select = -c(INDEX))
+model1 = lm(TARGET_WINS ~ ., data=train) 
+summary(model1)
+```
+
+From the first Model we can see that most of the independent variables have a higher p-value but for TEAM_FIELDING_DP and TEAM_FIELDING_E. We are not taking TEAM_BATTING_HBP this in to consideration, because we will dropping this from our model because of NA values. The R^2 and Adjusted R^2 are at 55% and 50% respectively. This model defenitely needs some tunning.
+
+
+### For Model 2 : We would like to do some back ward elimination and see whether there is some scope of improvement.
+
+We will drop the following from train data 
+
+TEAM_BATTING_HBP(Because of NA values), 
+TEAM_BATTING_HR(Because of strong correlation with other independent variable)
+
+
+
+
+```{r}
+train2 = subset(train, select = -c(TEAM_BATTING_HBP))
+
+model2 = lm(TARGET_WINS ~ ., data=train2) 
+summary(model2)
+
+```
+
+### For Model 3 : From Training Data Set 2, we will remove the following variables, which has relatively higher p-values.
+
+TEAM_PITCHING_BB(Highest p-value)
+TEAM_BASERUN_CS(High P-value)
+TEAM_PITCHING_HR(Strong correlation with another variable)
+
+```{r}
+
+train3 = subset(train2, select = -c(TEAM_PITCHING_BB, TEAM_PITCHING_HR,TEAM_BASERUN_CS))
+
+model3 = lm(TARGET_WINS ~ ., data=train3) 
+summary(model3)
+
+```
+
+### For Model 4, We are going to do a Step for our first training model and see what are the variables that are being dropped.
+
+```{r}
+
+model1 = lm(TARGET_WINS ~ ., data=train) 
+selectedMod = step(model1)
+summary(selectedMod)
+
+```
+
+
+
+
+
+## 4 .  SELECT MODELS 
+
+Now we have four models to select our model. We will see all the important statistics of the models and compare.
+
+```{r}
+results = NULL
+modellist = list(m1 = model1, m2 = model2, m3 = model3, m4 = selectedMod)
+
+for(i in names(modellist)){
+    s = summary(modellist[[i]])
+    name = i
+    mse <- mean(s$residuals^2)
+    r2 <- s$r.squared
+    f <- s$fstatistic[1]
+    k <- s$fstatistic[2]
+    n <- s$fstatistic[3]
+    results = rbind(results, data.frame(
+        name = name, rsquared = r2, mse = mse, f = f,
+        k = k, n = n))
+}
+rownames(results) = NULL
+results
+
+```
+
+Out of 4 models, we will go with Model 4(M4) as our model and we see how the QQ Plots of Residuals looks like.
+
+
+```{r}
+plot(fitted(selectedMod), resid(selectedMod))
+abline(h=0)
+
+
+qqnorm(selectedMod$residuals)
+qqline(selectedMod$residuals)
+
+```
+
+Residuals are almost normally distributed except for the at the top of the QQline where points are little displaced from the line. 
+
+
+
+```{r}
+# We will predict test data using our selected model 
+outprediction = predict(selectedMod, newdata = test,type = 'response')
+outprediction[is.na(outprediction)] = mean(train$TARGET_WINS)
+
+```
+
+Since most of the values from our prediction are NA values, we have replaced those with mean of training data set.
+
+## References:
+
+http://r-statistics.co/Linear-Regression.html
+
+http://r-statistics.co/Model-Selection-in-R.html
+
+
