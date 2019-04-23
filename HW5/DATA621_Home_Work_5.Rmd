@@ -1,0 +1,582 @@
+---
+title: "DATA621_Home_Work_5"
+author: "Dilip Ganesan"
+date: "7/10/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+
+if (!require('corrplot')) install.packages('corrplot')
+library(corrplot)
+if (!require('knitr')) install.packages('knitr')
+library(knitr)
+if (!require('ResourceSelection')) install.packages('ResourceSelection')
+library(ResourceSelection)
+if (!require('caret')) (install.packages('caret'))
+library(caret)
+if (!require('e1071')) (install.packages('e1071'))
+library(e1071)
+if (!require('pROC')) (install.packages('pROC'))
+library(pROC)
+if (!require('psych')) (install.packages('psych'))
+library(psych)
+if (!require('dplyr')) (install.packages('dplyr'))
+library(dplyr)
+if (!require('VIM')) (install.packages('VIM'))
+library(VIM)
+if (!require('reshape')) (install.packages('reshape'))
+library(reshape)
+if (!require('MASS')) (install.packages('MASS'))
+library(MASS)
+if (!require('car')) (install.packages('car'))
+library(car)
+if (!require('DataExplorer')) (install.packages('DataExplorer'))
+library(DataExplorer)
+if (!require('missForest')) (install.packages('missForest'))
+library(missForest)
+if (!require('sandwich')) (install.packages('sandwich'))
+library(sandwich)
+if (!require('qpcR')) (install.packages('qpcR'))
+library(qpcR)
+
+
+
+```
+
+## Home Work Assignment 5.
+
+##1.DATA EXPLORATION.(Exploratory Data Analysis EDA)
+
+As first step in our EDA, let us load the train data and do a summary statistics on the loaded dataset.
+
+
+
+```{r}
+# Let us load the train.csv data
+train = read.csv('wine-training-data.csv')
+test = read.csv('wine-evaluation-data.csv')
+
+train = within(train, rm('INDEX'))
+#test = within(test, rm('INDEX'))
+
+summary(train)
+
+
+```
+
+
+
+
+## Examination of Data Set.
+
+1. There are 12795 observations and 15 variables(excluding the INDEX) in the train data set. Out of 15 variables 0 are discrete, and all 15 are continous variables.
+
+2. TARGET is the predictor variable in the data set.
+
+
+
+## Statistical Summary of Data Set:
+
+```{r}
+summary = describe(train, quant = c(.25,.75))
+knitr::kable(summary)
+```
+
+
+1. There are total of 8200 missing NAs and the max of that are in STARS, we can set the missing STARS NAs to 0.
+
+2. ACIDINDEX, LABELAPPEAL, STARS and TARGET are all discrete variables. So the count regression is the approach we can follow.
+
+3. Many variables has negative values. Need to do some data transformation.
+
+
+
+## Visual Exploration of Data set:
+
+***Histogram***
+
+```{r}
+ggtrain = train
+
+plot_histogram(ggtrain)
+
+```
+
+
+
+1. From the histogram we can see that variable ACIDINDEX is positively skewed. 
+
+2. Most of the continous variables are platykurtic having smaller tails and higher peaks.
+
+***BoxPlot***
+
+We will do a box plot of the discrete variable and predictor variables.
+
+```{r}
+boxtrain = subset(train, select = c('TARGET','LabelAppeal','AcidIndex','STARS'))
+plot_boxplot(boxtrain,"TARGET")
+```
+
+
+
+1. From the box plot we can see higher values of STARS and label Appeal the more cases are bought.
+
+
+
+***ScatterPlot***
+
+```{r}
+plot_scatterplot(train[1:15,], "TARGET", position = "jitter")
+
+```
+
+From the scatterplot, we do not see any pronounced positive or negative relationships. We will do a Correlation next to see in detail.
+
+
+***MultiCollinearity between predictor variables and also with response variables***
+
+```{r}
+cordata = cor(train)
+corrplot(cordata, method = "square", type = "upper")
+
+```
+
+
+
+From the corrplot we can see that LabelAppeal and TARGET has a litte positive correlation. AcidIndex and TARGET has a litte negative correlation. 
+
+With respect to response and predictor variables, We do not see much of a bigger correlation.
+
+***Missing Value***
+
+
+
+```{r}
+
+VIM::aggr(train, col=c('navyblue','yellow'),
+                      numbers=TRUE, sortVars=TRUE,
+                       labels=names(train), 
+                       ylab=c("NA Counts","Pattern"))
+```
+## 2.DATA PREPARATION 
+
+From our visual exploration we have identified 8 variables are having missing values.
+
+1. We will set Zero for NA values for variable STARS.
+
+2. 10 out of 15 variables has negative values. This shows the data set might not be accurate. 
+   We will take an absolute value for these variables.
+
+For rest of the variable which are missing values we can try Random Forrest Algorithm for imputation. 
+In the last excercise we tried executing imputing these random missing values using MICE package.
+But running the package lead to crashing of R server multiple times. So for that project dropped using mice.
+
+Now for this project we can try using missForest and see the performance.
+
+```{r}
+train$STARS[is.na(train$STARS)] = 0
+test$STARS[is.na(test$STARS)] = 0
+
+train = 
+  train %>% 
+  mutate(
+    FixedAcidity = abs(FixedAcidity), 
+    VolatileAcidity = abs(VolatileAcidity), 
+    CitricAcid = abs(CitricAcid),
+    ResidualSugar = abs(ResidualSugar),
+    Chlorides = abs(Chlorides),
+    FreeSulfurDioxide = abs(FreeSulfurDioxide),
+    TotalSulfurDioxide = abs(TotalSulfurDioxide),
+    Sulphates = abs(Sulphates),
+    Alcohol = abs(Alcohol))
+
+
+test = 
+  test %>% 
+  mutate(
+    FixedAcidity = abs(FixedAcidity), 
+    VolatileAcidity = abs(VolatileAcidity), 
+    CitricAcid = abs(CitricAcid),
+    ResidualSugar = abs(ResidualSugar),
+    Chlorides = abs(Chlorides),
+    FreeSulfurDioxide = abs(FreeSulfurDioxide),
+    TotalSulfurDioxide = abs(TotalSulfurDioxide),
+    Sulphates = abs(Sulphates),
+    Alcohol = abs(Alcohol))
+
+
+
+
+```
+
+
+We will plot and see the missing elements. This is after filling the missed values.
+
+```{r}
+plot_missing(train)
+
+```
+
+
+
+If we see below, we are seeing following variables has missing values.
+
+Sulphates
+TotalSulfurDioxide
+Alcohol
+FreeSulfurDioxide
+Chlorides
+ResidualSugar
+pH
+
+For the above we will use the missForest Package and do the imputation.
+
+```{r}
+imputed_train = missForest(train, variablewise = T)
+#imputed_train$ximp
+train_imputed = imputed_train$ximp
+
+#imputed_train$OOBerror
+
+imputed_eval = missForest(test, variablewise = T)
+
+```
+
+
+## 3. BUILDING MODELS
+
+### Classification:
+
+As approach we are going to build the following models. 
+
+For the following problem we are going to use the Linear Model.
+
+***Base Model and Transformed Variables***
+
+1. The first model will be Base Model. It will contain all transformed imputed data. It contains all the 15 variables.
+
+
+
+```{r}
+
+regbaseplustransform = lm(TARGET ~ .  , data = train_imputed)
+
+summary(regbaseplustransform)
+```
+
+
+***Observations***
+
+From the above model, we see 5 out of the 15 variables has (stat-sig) p-values at a significance level greater than 0.05.
+These variable can be dropped in our next model to see how our model performs. 
+The below are the variables which can be dropped in our next model.
+
+FixedAcidity
+ResidualSugar
+FreeSulfurDioxide
+CitricAcid
+Density
+
+The p-values of LableAppeal, AcidIndex and STARS are very less than 0.05. They have significance impact on the model.
+
+
+***Base Model Transformation pls Backward Elimination***
+
+2. For this model, we are going to use the Base Model(Transformation) and we are going to remove the variables which has higher p-value(>0.05). 
+
+The variables discussed above have been removed from base_model variables. 
+
+
+
+```{r}
+regbasebackward=
+lm(formula = TARGET ~ VolatileAcidity + Chlorides + TotalSulfurDioxide + 
+    pH + Sulphates + Alcohol + LabelAppeal + AcidIndex + STARS, 
+   data = train_imputed)
+
+summary(regbasebackward)
+
+```
+
+***Observations***
+
+From the above model, we see all of our variables has p-values at a significance level lesser than 0.05. This shows the model is very good.
+
+Also this model is parsimonous compared to the Base model.
+
+Let us do some plots and discuss about them.
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(regbasebackward)
+```
+
+The Q-Q Plot which shows the normality of residual is near normal plot.
+
+Residual vs Fitted plot displays almost constant variance.
+
+
+```{r}
+knitr::kable(vif(regbasebackward))
+```
+
+None of the variables has variance inflation factor > 4. Which indicates it is signficant model compared to base model.
+
+***Step Model***
+
+3. For our next model, we will use the step function on the base model and transformation variables.
+
+
+```{r}
+
+base_step_model = step(regbaseplustransform)
+  summary(base_step_model)
+
+```
+
+
+
+***Observations***
+
+From the above model, we see 3 variables dropped from 15. 
+
+Also this model is parsimonous compared to the Base model but the backward elimination model was better with 9 variables.
+
+Let us do some plots and discuss about them.
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(base_step_model)
+```
+
+The Q-Q Plot which shows the normality of residual is near normal plot.
+
+Residual vs Fitted plot displays almost constant variance. 
+But as the backward elimination the standardized residual displays nonconstant variance.
+
+
+```{r}
+knitr::kable(vif(base_step_model))
+```
+
+None of the variables has variance inflation factor > 4. Which indicates it is signficant model compared to base model.
+
+
+***Comparison of Linear Regression Models.***
+
+```{r}
+results = NULL
+modellist = list(linearBase = regbaseplustransform, linearBackWard = regbasebackward, LinearBICStep= base_step_model)
+
+for(i in names(modellist)){
+    s = summary(modellist[[i]])
+    name = i
+    mse <- mean(s$residuals^2)
+    r2 <- s$r.squared
+    f <- s$fstatistic[1]
+    k <- s$fstatistic[2]
+    n <- s$fstatistic[3]
+    results = rbind(results, data.frame(
+        name = name, rsquared = r2, mse = mse, f = f,
+        k = k, n = n))
+}
+rownames(results) = NULL
+results
+
+```
+
+
+### Poisson Regression Analysis.
+
+In our experiment the response variable is Count, so the Poisson Regression is the way to go to solve this problem.
+
+As base model we will use the base entire set of variables.
+
+```{r}
+
+posmod = glm(TARGET ~ ., family = "poisson", data = train_imputed)
+summary(posmod)
+
+#knitr::kable(vif(posmod))
+
+```
+
+***Observations***
+
+Deviance is approximately normally distributed since the Median is almost zero.
+
+None of the variables has VIF greater than 4.
+
+Since the above coefficients are in exponentional terms will do an exponential transformation.
+From the below we can say that for every 1 point in increase in STARS rating the number of cases purchased will increase by 1.366.
+
+With p-value of chisq test almost zero, this shows that the deviance is not small enough for a good fit.
+
+```{r}
+
+cov.m1 = vcovHC(posmod, type="HC0")
+std.err = sqrt(diag(cov.m1))
+r.est = cbind(Estimate= exp(coef(posmod)), "Robust SE" = std.err,
+LL = exp(coef(posmod)) - 1.96 * std.err,
+UL = exp(coef(posmod)) + 1.96 * std.err)
+
+r.est
+
+with(posmod, cbind(res.deviance = deviance, df = df.residual,
+  p = pchisq(deviance, df.residual, lower.tail=FALSE)))
+
+```
+
+
+
+***Poisson Base Step ***
+
+We will use the base model and do a step function on it.
+
+```{r}
+posmod = glm(TARGET ~ ., family = "poisson", data = train_imputed)
+pos_step_model = step(posmod)
+summary(pos_step_model)
+```
+
+
+```{r}
+
+cov.m1 = vcovHC(pos_step_model, type="HC0")
+std.err = sqrt(diag(cov.m1))
+r.est = cbind(Estimate= exp(coef(pos_step_model)), "Robust SE" = std.err,
+LL = exp(coef(pos_step_model)) - 1.96 * std.err,
+UL = exp(coef(pos_step_model)) + 1.96 * std.err)
+
+r.est
+
+with(pos_step_model, cbind(res.deviance = deviance, df = df.residual,
+  p = pchisq(deviance, df.residual, lower.tail=FALSE)))
+
+```
+
+
+
+Compared to the base model the BIC Model is more parsimonous, but the rest of output values are almost similar to base model.
+
+### Negative Binomial Regression Analysis.
+
+As part of Negative Binom, we are going to do BIC on base model.
+
+```{r}
+base_neg_model = glm.nb(TARGET ~ ., data = train_imputed)
+
+step_neg_base_model = step(base_neg_model, k = log(n), trace = 0)
+summary(step_neg_base_model)
+
+
+#knitr::kable(vif(step_neg_base_model))
+
+```
+
+p-value of all the variables are less than 0.05. This makes the model ideal for prediction.
+
+p-Value from Chi Sq test is almost near zero, which says deviance is not small enough for a good fit.
+
+None of the variables has VIF > 4. No multicollinearity issue.
+
+
+
+```{r}
+
+cov.m1 = vcovHC(step_neg_base_model, type="HC0")
+std.err = sqrt(diag(cov.m1))
+r.est = cbind(Estimate= exp(coef(step_neg_base_model)), "Robust SE" = std.err,
+LL = exp(coef(step_neg_base_model)) - 1.96 * std.err,
+UL = exp(coef(step_neg_base_model)) + 1.96 * std.err)
+
+r.est
+
+with(step_neg_base_model, cbind(res.deviance = deviance, df = df.residual,
+  p = pchisq(deviance, df.residual, lower.tail=FALSE)))
+
+
+```
+
+
+## 4. MODEL SELECTION:
+
+***Coefficient Comparison***
+
+Comparison of the coefficient between Linear Model and Generalized Linear Models. We can see the for LM models the value is between 3 and 4.
+For GLM models the value is hovering around (1.5). For both Poisson and Negative Binomial, there is no much difference. The values are almost identical.
+
+
+```{r}
+
+
+knitr::kable(regbaseplustransform$coefficients)
+knitr::kable(regbasebackward$coefficients)
+knitr::kable(base_step_model$coefficients)
+knitr::kable(posmod$coefficients)
+knitr::kable(pos_step_model$coefficients)
+knitr::kable(step_neg_base_model$coefficients)
+
+
+```
+
+
+
+
+***RMSE***
+
+Comparison of Root Mean Square Error between LM models and GLM Models. 
+The value for LM Models are less compared to GLM models. 
+
+There is no difference between poisson and negative binomial RMSE values. They are identical.
+The Chi-Sq test value of negative binomial was better compared to the rest also the model has parsimonious variable compared to other models. 
+So we can pick Negative Binom Model for our final prediction analysis.
+
+```{r}
+
+
+
+rmslmbase = qpcR::RMSE(regbaseplustransform)
+rmslmBack = qpcR::RMSE(regbasebackward)
+rmslmStep = qpcR::RMSE(base_step_model)
+rmsposStep = sqrt(boot::cv.glm(pos_step_model$model, pos_step_model, K = 50)$delta[1]) 
+rmsposBase = sqrt(boot::cv.glm(posmod$model, posmod, K = 50)$delta[1])  
+rmsNb = sqrt(boot::cv.glm(step_neg_base_model$model, step_neg_base_model, K = 50)$delta[1])  
+RMSEResults = data.frame("Base Model" = rmslmbase,
+                           "Base Backward Elimination" = rmslmBack,
+                           "Base Step" = rmslmStep,
+                           "Pos Base" = rmsposBase,
+                           "Pos Step Base" = rmsposStep,
+                           "Negative Binom" = rmsNb)
+
+knitr::kable(RMSEResults)
+```
+
+
+## Evalution 
+
+For our final model we picked the negative binomial with varying dispersion for prediction.
+
+```{r}
+
+summary(predict(step_neg_base_model, newdata = imputed_eval$ximp, type = "response"))
+
+
+```
+
+
+## References
+
+
+https://www.analyticsvidhya.com/blog/2016/03/tutorial-powerful-packages-imputing-missing-values/
+
+https://stats.idre.ucla.edu/r/dae/poisson-regression/
+
+
