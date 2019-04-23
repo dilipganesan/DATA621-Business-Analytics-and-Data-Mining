@@ -1,0 +1,449 @@
+---
+title: "DATA621_Home_Work_4"
+author: "Dilip Ganesan"
+date: "7/5/2018"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if (!require('corrplot')) install.packages('corrplot')
+library(corrplot)
+if (!require('knitr')) install.packages('knitr')
+library(knitr)
+if (!require('ResourceSelection')) install.packages('ResourceSelection')
+library(ResourceSelection)
+if (!require('caret')) (install.packages('caret'))
+library(caret)
+if (!require('e1071')) (install.packages('e1071'))
+library(e1071)
+if (!require('pROC')) (install.packages('pROC'))
+library(pROC)
+if (!require('psych')) (install.packages('psych'))
+library(psych)
+if (!require('dplyr')) (install.packages('dplyr'))
+library(dplyr)
+if (!require('VIM')) (install.packages('VIM'))
+library(VIM)
+if (!require('reshape')) (install.packages('reshape'))
+library(reshape)
+if (!require('MASS')) (install.packages('MASS'))
+library(MASS)
+if (!require('car')) (install.packages('car'))
+library(car)
+if (!require('DataExplorer')) (install.packages('DataExplorer'))
+library(DataExplorer)
+
+```
+
+## Home Work Assignment 4.
+
+##1.DATA EXPLORATION.(Exploratory Data Analysis EDA)
+
+As first step in our EDA, let us load the train data and do a summary statistics on the loaded dataset.
+
+
+
+```{r}
+# Let us load the train.csv data
+train = read.csv('insurance_training_data.csv')
+test = read.csv('insurance-evaluation-data.csv')
+
+train = within(train, rm('INDEX'))
+test = within(test, rm('INDEX'))
+
+summary(train)
+
+
+```
+
+We will make sure there is no inappropriate distribution of target(response) variables in our training data.
+
+```{r}
+knitr::kable(table(train$TARGET_FLAG))
+
+```
+
+
+## Examination of Data Set.
+
+1. There are 8161 rows and 25 columns(excluding the INDEX) in the train data set. The 2 columns are response variable and rest are predictor variables.
+
+TARGET_FLAG is a binary variable where 1 means that person had a crash. 0 means that person did not had the crash.
+
+TARGET_AMT is the expense because of the accident. 0 when there is no accident.
+
+## Statistical Summary of Data Set:
+
+```{r}
+summary = describe(train, quant = c(.25,.75))
+knitr::kable(summary)
+```
+
+
+1. CAR_AGE, YOJ and AGE has NA values.
+
+2. CAR_AGE min value is -3. This needs some manipulation.
+
+3. TARGET_AMT has a large skewness. We need to do some transformation on this variable.
+
+
+
+## Visual Exploration of Data set:
+
+***Histogram***
+
+```{r}
+ggtrain = split_columns(train)
+
+plot_histogram(ggtrain$continuous)
+plot_bar(ggtrain$discrete)
+
+```
+
+
+1. From the histogram we can see that variable TARGET_AMT is skewed. This is a ideal candidate for transformation.
+
+2. We can see TARGET_FLAG has more observations of not having accidents compared to having an accidents.
+
+
+***ScatterPlot***
+
+```{r}
+plot_scatterplot(train[1:25,], "TARGET_AMT", position = "jitter")
+
+```
+
+
+On the analysis of Scatter plot between TARGET_AMT and other Predictor variables, we do not see any pronounced positive or negative relationship.
+
+
+***MultiCollinearity between predictor variables and also with response variables***
+
+```{r}
+#TARGET_AMT,KIDSDRIV,AGE,YOJ,TRAVTIME,TIF,CLM_FREQ,MVR_PTS,CAR_AGE, INCOME,HOME_VAL,BLUEBOOK,OLDCLAIM
+
+
+
+cordata = cor(ggtrain$continuous)
+corrplot(cordata, method = "square", type = "upper")
+
+```
+
+
+
+From the corrplot we can see that KIDSDRIV and HOMEKIDS has a litte positive correlation. 
+
+With respect to response and predictor variables, We do not see much of a bigger correlation.
+
+***Missing Value***
+
+On anlysis of missing values, we see CAR_AGE, YOJ and AGE has missing values in the respective order. 
+
+```{r}
+
+VIM::aggr(train, col=c('navyblue','yellow'),
+                      numbers=TRUE, sortVars=TRUE,
+                       labels=names(train), 
+                       ylab=c("NA Counts","Pattern"))
+```
+## 2.DATA PREPARATION 
+
+From our visual exploration we have identified few variables to go through transformation based on the dataset.
+
+1. We will make Home Kids as a Boolean instead of Factor.
+
+2. Will reset the -ve values of CAR_AGE to 0.
+
+3. We will change the Jobs and Education Levels.
+
+```{r}
+train$HOMEKIDS[train$HOMEKIDS != 0 ] = 1
+
+train$CAR_AGE[train$CAR_AGE < 0 ] = 0
+
+train_transformed = 
+train %>%
+  mutate(
+    COLGEDUCATED = as.integer(EDUCATION %in% c("Bachelors", "Masters", "PhD")),
+    ISPROF = as.integer(JOB %in% c("Doctor", "Lawyer", "Manager", "Professional")),
+    ISMINIVAN = as.integer(CAR_TYPE == "Minivan")
+  ) 
+
+
+train_transformed = subset(train_transformed, select = -c(EDUCATION,JOB,CAR_TYPE ))
+
+
+test$HOMEKIDS[test$HOMEKIDS != 0 ] = 1  
+test$CAR_AGE[test$CAR_AGE < 0 ] = 0
+
+test_transformed = test %>%
+  mutate(
+    COLGEDUCATED = as.integer(EDUCATION %in% c("Bachelors", "Masters", "PhD")),
+    ISPROF = as.integer(JOB %in% c("Doctor", "Lawyer", "Manager", "Professional")),
+    ISMINIVAN = as.integer(CAR_TYPE == "Minivan")
+  ) 
+
+
+test_transformed = subset(test_transformed, select = -c(EDUCATION,JOB,CAR_TYPE ))
+
+```
+
+
+We will plot and see the missing elements. 
+
+```{r}
+plot_missing(train_transformed)
+
+```
+
+For the variables CAR_AGE, AGE, YOJ we fill those missing values with Median.
+
+We tried executing imputing these random missing values using MICE package.
+
+But running the package lead to crashing of R server multiple times. So for this project dropped from using mice.
+
+
+
+```{r}
+train_transformed$AGE[is.na(train_transformed$AGE)] = median(train_transformed$AGE,na.rm = TRUE)
+test_transformed$AGE[is.na(test_transformed$AGE)] = median(test_transformed$AGE,na.rm = TRUE)
+
+
+train_transformed$CAR_AGE[is.na(train_transformed$CAR_AGE)] = median(train_transformed$CAR_AGE,na.rm = TRUE)
+test_transformed$CAR_AGE[is.na(test_transformed$CAR_AGE)] = median(test_transformed$CAR_AGE,na.rm = TRUE)
+
+
+train_transformed$YOJ[is.na(train_transformed$YOJ)] = median(train_transformed$YOJ,na.rm = TRUE)
+test_transformed$YOJ[is.na(test_transformed$YOJ)] = median(test_transformed$YOJ,na.rm = TRUE)
+
+
+```
+
+
+
+## 3. BUILDING MODELS
+
+### Classification:
+
+As approach we are going to build the following models. 
+
+Each of our logistic regression models will use bionomial regression with a logit link function
+
+1. Using the data set asis with 13 predictor variables and 1 response variable. This model we will call it the Base Model with all original variables in data set.
+
+***Base Model***
+
+```{r}
+
+base_model = glm(target ~ . , family = "binomial", data = train)
+summary(base_model)
+
+knitr::kable(vif(base_model))
+
+hoslem.test(train$target, fitted(base_model))
+
+rocBasePlot = roc(base_model$y, fitted(base_model))
+AUC = as.numeric(pROC::roc(base_model$y, fitted(base_model))$auc)
+AUC
+```
+
+***Observations***
+
+From the above model, we see 5 out of the 13 variables has (stat-sig) p-values at a significance level greater than 0.05
+
+The coefficient for nox has the highest, which has the highest positive correlation with response variables.
+
+From the VIF function we can see that the following variables has VIF > 4. medv, dis, rm, nox. In our next model we can think of eliminating these as part of Multicollinearity test.
+
+From the above Hoslem test we can see the value of p = 0.1919, which is significantly lesser than 0.05. Which says our model is pretty good.
+
+From the AUC(Area under the curve) values above of 'r AUC' is  relatively high at .974. This model is good at predicting the response variable.
+
+
+***Base Model and Transformed Variables***
+
+2. For our second model we are going to use 17 variables, which includes the log transformed variables. 
+
+
+```{r}
+
+base_transform_model = glm(target ~ . , family = "binomial", data = train_data_transform)
+summary(base_transform_model)
+
+knitr::kable(vif(base_transform_model))
+
+hoslem.test(train$target, fitted(base_transform_model))
+
+rocBaseTransformPlot = roc(base_transform_model$y, fitted(base_transform_model))
+AUC = as.numeric(pROC::roc(base_transform_model$y, fitted(base_transform_model))$auc)
+AUC
+```
+
+
+***Observations***
+
+From the above model, we see 6 out of the 17 variables has (stat-sig) p-values at a significance level greater than 0.05
+
+From the VIF function we can see 7 variables has VIF > 4. So this multicollinearity issue has confounded with the transformation model. So this issue will make this model not a good fit.
+
+From the above Hoslem test we can see the value of p = 0.001159, which is significantly lesser than 0.05. Which says our model is pretty good.
+
+From the AUC(Area under the curve) values above of 'r AUC' is  relatively high at .977. This model is good at predicting the response variable.
+
+Considering the confounding multicollinearity issue this model is creating, this will not be the ideal candidate.
+
+***Base Model Backward Elimination***
+
+3. For this model, we are going to use the Base Model and we are going to remove the variables which has higher p-value(>0.05). 
+
+The following variables have been removed from base_model variables. zn, indus, chas, rm, lstat
+
+
+```{r}
+
+train_new = subset(train, select = -c(zn, indus, chas, rm, lstat))
+
+base_backward_model = glm(target ~ . , family = "binomial", data = train_new)
+summary(base_backward_model)
+
+knitr::kable(vif(base_backward_model))
+
+hoslem.test(train$target, fitted(base_backward_model))
+rocBaseBackwardPlot = roc(base_backward_model$y, fitted(base_backward_model))
+AUC = as.numeric(pROC::roc(base_backward_model$y, fitted(base_backward_model))$auc)
+AUC
+
+
+
+```
+
+***Observations***
+
+From the above model, we see all of our variables hasve p-values at a significance level lesser than 0.05
+
+From the VIF function we can see 0 variables has VIF > 4. 
+
+From the above Hoslem test we can see the value of p = 0.9688, which is significantly greater than 0.05. Which says our model is not that good.
+
+From the AUC(Area under the curve) values above of 'r AUC' is  relatively high at .971. 
+
+Considering the higher p-value of Hoslem test is giving, there is issue with this model, this will not be the ideal candidate.
+
+
+***Step Model***
+
+4. For our final model, we will use the step function on the base model variables.
+
+
+```{r}
+
+base_step_model = step(base_model)
+summary(base_step_model)
+
+knitr::kable(vif(base_step_model))
+
+hoslem.test(train$target, fitted(base_step_model))
+rocBaseStepPlot = roc(base_step_model$y, fitted(base_step_model))
+AUC = as.numeric(pROC::roc(base_step_model$y, fitted(base_step_model))$auc)
+AUC
+
+```
+
+
+
+***Observations***
+
+From the above model, we see one variable has been dropped out of 12. 
+we see 2 out of the 12 variables has (stat-sig) p-values at a significance level greater than 0.05
+
+From the VIF function we can see that the following variables has VIF > 4. nox. 
+
+From the above Hoslem test we can see the value of p = 0.06228, which is little more than 0.05. Which says our model is pretty good.
+
+From the AUC(Area under the curve) values above of 'r AUC' is  relatively high at .974. This model is good at predicting the response variable.
+
+
+## 4. MODEL SELECTION:
+
+From our 4 Model, we will first see the ROC and AUC curve.
+
+```{r}
+
+plot(rocBasePlot, asp=NA, legacy.axes = TRUE, print.auc=TRUE, xlab="FPR")
+plot(rocBaseTransformPlot, asp=NA, legacy.axes = TRUE, print.auc=TRUE, xlab="FPR")
+plot(rocBaseBackwardPlot, asp=NA, legacy.axes = TRUE, print.auc=TRUE, xlab="FPR")
+plot(rocBaseStepPlot, asp=NA, legacy.axes = TRUE, print.auc=TRUE, xlab="FPR")
+
+```
+
+***confusion Matrix.***
+
+```{r}
+# Confusion Matrix of Base Model
+baseConfusion = as.factor(as.integer(fitted(base_model) > .5))
+baseCM = confusionMatrix(baseConfusion, as.factor(base_model$y), positive = "1")
+caretResults = data.frame(Accurarcy = baseCM$overall[['Accuracy']],
+                           ClassErrorRate = 1 - baseCM$overall[['Accuracy']],
+                           Precision = baseCM$byClass[['Precision']],
+                           Senstivity = baseCM$byClass[['Sensitivity']],
+                           Specificity = baseCM$byClass[['Specificity']],
+                           F1 = baseCM$byClass[['F1']])
+# Confusion Matrix of Base Transformation Model
+baseTransformConfusion = as.factor(as.integer(fitted(base_transform_model ) > .5))
+baseTransformCM = confusionMatrix(baseTransformConfusion, as.factor(base_transform_model$y), positive = "1")
+caretTransformResults = data.frame(Accurarcy = baseTransformCM$overall[['Accuracy']],
+                           ClassErrorRate = 1 - baseTransformCM$overall[['Accuracy']],
+                           Precision = baseTransformCM$byClass[['Precision']],
+                           Senstivity = baseTransformCM$byClass[['Sensitivity']],
+                           Specificity = baseTransformCM$byClass[['Specificity']],
+                           F1 = baseTransformCM$byClass[['F1']])
+
+# Confusion Matrix of Base Backward Elimination Model
+baseBackwardConfusion = as.factor(as.integer(fitted(base_backward_model ) > .5))
+baseBackwardCM = confusionMatrix(baseBackwardConfusion, as.factor(base_backward_model$y), positive = "1")
+caretBackwardResults = data.frame(Accurarcy = baseBackwardCM$overall[['Accuracy']],
+                           ClassErrorRate = 1 - baseBackwardCM$overall[['Accuracy']],
+                           Precision = baseBackwardCM$byClass[['Precision']],
+                           Senstivity = baseBackwardCM$byClass[['Sensitivity']],
+                           Specificity = baseBackwardCM$byClass[['Specificity']],
+                           F1 = baseBackwardCM$byClass[['F1']])
+
+# Confusion Matrix of Base Step Model
+baseStepConfusion = as.factor(as.integer(fitted(base_step_model ) > .5))
+baseStepCM = confusionMatrix(baseStepConfusion, as.factor(base_step_model$y), positive = "1")
+caretStepResults = data.frame(Accurarcy = baseStepCM$overall[['Accuracy']],
+                           ClassErrorRate = 1 - baseStepCM$overall[['Accuracy']],
+                           Precision = baseStepCM$byClass[['Precision']],
+                           Senstivity = baseStepCM$byClass[['Sensitivity']],
+                           Specificity = baseStepCM$byClass[['Specificity']],
+                           F1 = baseStepCM$byClass[['F1']])
+TotalConMatrix = rbind(caretResults, caretTransformResults, caretBackwardResults, caretStepResults)
+knitr::kable(TotalConMatrix)
+```
+
+After analyzing all our four models, we will be using the Base_Step_Model for our prediction.
+
+Because of the Observations we discussed.
+
+
+## Evalution 
+
+Finally, when we apply the Step model to the evalution data, it predicts there are 21 obs below the median crime rate and 19 above the median crime rate.
+
+```{r}
+
+eval_results = predict(base_step_model, newdata = test)
+table(as.integer(eval_results > .5))
+
+```
+
+
+## References
+
+
+https://www.analyticsvidhya.com/blog/2016/03/tutorial-powerful-packages-imputing-missing-values/
+
+
