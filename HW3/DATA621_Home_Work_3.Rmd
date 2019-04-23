@@ -1,0 +1,365 @@
+---
+title: "DATA621_Home_Work_3"
+author: "Dilip Ganesan"
+date: "6/28/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if (!require('corrplot')) install.packages('corrplot')
+library(corrplot)
+if (!require('knitr')) install.packages('knitr')
+library(knitr)
+if (!require('ResourceSelection')) install.packages('ResourceSelection')
+library(ResourceSelection)
+if (!require('caret')) (install.packages('caret'))
+library(caret)
+if (!require('e1071')) (install.packages('e1071'))
+library(e1071)
+if (!require('pROC')) (install.packages('pROC'))
+library(pROC)
+if (!require('psych')) (install.packages('psych'))
+library(psych)
+if (!require('dplyr')) (install.packages('dplyr'))
+library(dplyr)
+if (!require('tidyverse')) (install.packages('tidyverse'))
+library(tidyverse)
+if (!require('reshape')) (install.packages('reshape'))
+library(reshape)
+if (!require('MASS')) (install.packages('MASS'))
+library(MASS)
+if (!require('car')) (install.packages('car'))
+library(car)
+```
+
+## Home Work Assignment 3.
+
+##1.DATA EXPLORATION.(Exploratory Data Analysis EDA)
+
+As first step in our EDA, let us load the train data and do a summary statistics on the loaded dataset.
+
+
+
+```{r}
+# Let us load the train.csv data
+train = read.csv('crime-training-data.csv')
+test = read.csv('crime-evaluation-data.csv')
+
+summary(train)
+
+
+```
+
+We will make sure there is no inappropriate distribution of target(response) variables in our training data.
+
+```{r}
+knitr::kable(table(train$target))
+
+```
+
+
+## Examination of Data Set.
+
+1. There are 466 rows and 14 columns in the train data set. Out of 14 columns, 12 are continous variables and 2 are discrete variables. There are no NA values in the dataset. 
+
+2. On exploring the train data set,we see 13 predictor variables. All the variables are related to housing ranging from ethinicity, age group, income level to how big the houses are, number of square feet that is owned.
+
+3. For the binary logistic regression, the variable target is the response variables, with value of 0 or 1. 1 indicates 
+crime rate is above the median value.
+
+4. On a general glance one might think of following variables be positively correlated with higher crime rate.Like lstat, indus,  nox, ptratio etc. Similarly following variabls as negatively correlated with higher crime rates. Like   zn, rm, rad, medv. 
+
+
+## Statistical Summary of Data Set:
+
+```{r}
+summary = describe(train, quant = c(.25,.75))
+knitr::kable(summary)
+```
+
+1. We cannot say what variable transformation to be performed based on Skewness and Kurtosis as they are not large enough.
+
+2. The variable Zn is the only rightly skewed variables.
+
+## Visual Exploration of Data set:
+
+***Scatterplot***
+
+1. First we will see the scatterplot between the predictor variables and response variables.
+
+```{r}
+kdepairs(train)
+
+```
+
+From the  scatterplot, several of the predictor variables has non linear relationship with each other. 
+
+***Histogram***
+
+```{r}
+
+
+ggtrain = reshape::melt(train, id.vars = "target") %>% 
+  dplyr::filter(variable != "chas") %>% 
+  mutate(target = as.factor(target))
+
+ggplot(data = ggtrain, aes(value)) + 
+  geom_histogram(bins = 20) + 
+  facet_wrap(~variable, scales = "free")
+
+```
+
+
+1. From the histogram we can see that variable Zn is skewed. This is a ideal candidate for transformation.
+
+2. To some extent even the variables dis, age and lstat are skewed. So we can think of doing some transformation on these variables.
+
+***MultiCollinearity between predictor variables and also with response variables***
+
+```{r}
+cordata = cor(train)
+corrplot(cordata, method = "square", type = "upper")
+
+```
+
+
+
+
+
+From the corrplot we can see that tax and rad has a high positive correlation. In our model we have to remove multicollinearity by checking the varaiance inflation factor.
+
+With respect to response and predictor variables, the variable nox has highest correlation with response variable. We have to see how this affect our modelling.
+
+## 2.DATA PREPARATION 
+
+From our visual exploration we have identified few variables to go through transformation based on the dataset.
+
+1. We will apply log transform on the skewed variables Zn, age, and lstat. According to the book Sheather in book MARR in the chapter 8.
+
+```{r}
+train_data_transform = 
+  train %>% 
+  mutate(
+    log_age = log(age),
+    log_lstat = log(lstat))
+
+
+```
+
+## 3. BUILDING MODELS
+
+As approach we are going to build the following models. 
+
+Each of our logistic regression models will use bionomial regression with a logit link function
+
+1. Using the data set asis with 13 predictor variables and 1 response variable. This model we will call it the Base Model with all original variables in data set.
+
+***Base Model***
+
+```{r}
+
+base_model = glm(target ~ . , family = "binomial", data = train)
+summary(base_model)
+
+knitr::kable(vif(base_model))
+
+hoslem.test(train$target, fitted(base_model))
+
+rocBasePlot = roc(base_model$y, fitted(base_model))
+AUC = as.numeric(pROC::roc(base_model$y, fitted(base_model))$auc)
+AUC
+```
+
+***Observations***
+
+From the above model, we see 5 out of the 13 variables has (stat-sig) p-values at a significance level greater than 0.05
+
+The coefficient for nox has the highest, which has the highest positive correlation with response variables.
+
+From the VIF function we can see that the following variables has VIF > 4. medv, dis, rm, nox. In our next model we can think of eliminating these as part of Multicollinearity test.
+
+From the above Hoslem test we can see the value of p = 0.1919, which is significantly lesser than 0.05. Which says our model is pretty good.
+
+From the AUC(Area under the curve) values above of 'r AUC' is  relatively high at .974. This model is good at predicting the response variable.
+
+
+***Base Model and Transformed Variables***
+
+2. For our second model we are going to use 17 variables, which includes the log transformed variables. 
+
+
+```{r}
+
+base_transform_model = glm(target ~ . , family = "binomial", data = train_data_transform)
+summary(base_transform_model)
+
+knitr::kable(vif(base_transform_model))
+
+hoslem.test(train$target, fitted(base_transform_model))
+
+rocBaseTransformPlot = roc(base_transform_model$y, fitted(base_transform_model))
+AUC = as.numeric(pROC::roc(base_transform_model$y, fitted(base_transform_model))$auc)
+AUC
+```
+
+
+***Observations***
+
+From the above model, we see 6 out of the 17 variables has (stat-sig) p-values at a significance level greater than 0.05
+
+From the VIF function we can see 7 variables has VIF > 4. So this multicollinearity issue has confounded with the transformation model. So this issue will make this model not a good fit.
+
+From the above Hoslem test we can see the value of p = 0.001159, which is significantly lesser than 0.05. Which says our model is pretty good.
+
+From the AUC(Area under the curve) values above of 'r AUC' is  relatively high at .977. This model is good at predicting the response variable.
+
+Considering the confounding multicollinearity issue this model is creating, this will not be the ideal candidate.
+
+***Base Model Backward Elimination***
+
+3. For this model, we are going to use the Base Model and we are going to remove the variables which has higher p-value(>0.05). 
+
+The following variables have been removed from base_model variables. zn, indus, chas, rm, lstat
+
+
+```{r}
+
+train_new = subset(train, select = -c(zn, indus, chas, rm, lstat))
+
+base_backward_model = glm(target ~ . , family = "binomial", data = train_new)
+summary(base_backward_model)
+
+knitr::kable(vif(base_backward_model))
+
+hoslem.test(train$target, fitted(base_backward_model))
+rocBaseBackwardPlot = roc(base_backward_model$y, fitted(base_backward_model))
+AUC = as.numeric(pROC::roc(base_backward_model$y, fitted(base_backward_model))$auc)
+AUC
+
+
+
+```
+
+***Observations***
+
+From the above model, we see all of our variables hasve p-values at a significance level lesser than 0.05
+
+From the VIF function we can see 0 variables has VIF > 4. 
+
+From the above Hoslem test we can see the value of p = 0.9688, which is significantly greater than 0.05. Which says our model is not that good.
+
+From the AUC(Area under the curve) values above of 'r AUC' is  relatively high at .971. 
+
+Considering the higher p-value of Hoslem test is giving, there is issue with this model, this will not be the ideal candidate.
+
+
+***Step Model***
+
+4. For our final model, we will use the step function on the base model variables.
+
+
+```{r}
+
+base_step_model = step(base_model)
+summary(base_step_model)
+
+knitr::kable(vif(base_step_model))
+
+hoslem.test(train$target, fitted(base_step_model))
+rocBaseStepPlot = roc(base_step_model$y, fitted(base_step_model))
+AUC = as.numeric(pROC::roc(base_step_model$y, fitted(base_step_model))$auc)
+AUC
+
+```
+
+
+
+***Observations***
+
+From the above model, we see one variable has been dropped out of 12. 
+we see 2 out of the 12 variables has (stat-sig) p-values at a significance level greater than 0.05
+
+From the VIF function we can see that the following variables has VIF > 4. nox. 
+
+From the above Hoslem test we can see the value of p = 0.06228, which is little more than 0.05. Which says our model is pretty good.
+
+From the AUC(Area under the curve) values above of 'r AUC' is  relatively high at .974. This model is good at predicting the response variable.
+
+
+## 4. MODEL SELECTION:
+
+From our 4 Model, we will first see the ROC and AUC curve.
+
+```{r}
+
+plot(rocBasePlot, asp=NA, legacy.axes = TRUE, print.auc=TRUE, xlab="FPR")
+plot(rocBaseTransformPlot, asp=NA, legacy.axes = TRUE, print.auc=TRUE, xlab="FPR")
+plot(rocBaseBackwardPlot, asp=NA, legacy.axes = TRUE, print.auc=TRUE, xlab="FPR")
+plot(rocBaseStepPlot, asp=NA, legacy.axes = TRUE, print.auc=TRUE, xlab="FPR")
+
+```
+
+***confusion Matrix.***
+
+```{r}
+# Confusion Matrix of Base Model
+baseConfusion = as.factor(as.integer(fitted(base_model) > .5))
+baseCM = confusionMatrix(baseConfusion, as.factor(base_model$y), positive = "1")
+caretResults = data.frame(Accurarcy = baseCM$overall[['Accuracy']],
+                           ClassErrorRate = 1 - baseCM$overall[['Accuracy']],
+                           Precision = baseCM$byClass[['Precision']],
+                           Senstivity = baseCM$byClass[['Sensitivity']],
+                           Specificity = baseCM$byClass[['Specificity']],
+                           F1 = baseCM$byClass[['F1']])
+# Confusion Matrix of Base Transformation Model
+baseTransformConfusion = as.factor(as.integer(fitted(base_transform_model ) > .5))
+baseTransformCM = confusionMatrix(baseTransformConfusion, as.factor(base_transform_model$y), positive = "1")
+caretTransformResults = data.frame(Accurarcy = baseTransformCM$overall[['Accuracy']],
+                           ClassErrorRate = 1 - baseTransformCM$overall[['Accuracy']],
+                           Precision = baseTransformCM$byClass[['Precision']],
+                           Senstivity = baseTransformCM$byClass[['Sensitivity']],
+                           Specificity = baseTransformCM$byClass[['Specificity']],
+                           F1 = baseTransformCM$byClass[['F1']])
+
+# Confusion Matrix of Base Backward Elimination Model
+baseBackwardConfusion = as.factor(as.integer(fitted(base_backward_model ) > .5))
+baseBackwardCM = confusionMatrix(baseBackwardConfusion, as.factor(base_backward_model$y), positive = "1")
+caretBackwardResults = data.frame(Accurarcy = baseBackwardCM$overall[['Accuracy']],
+                           ClassErrorRate = 1 - baseBackwardCM$overall[['Accuracy']],
+                           Precision = baseBackwardCM$byClass[['Precision']],
+                           Senstivity = baseBackwardCM$byClass[['Sensitivity']],
+                           Specificity = baseBackwardCM$byClass[['Specificity']],
+                           F1 = baseBackwardCM$byClass[['F1']])
+
+# Confusion Matrix of Base Step Model
+baseStepConfusion = as.factor(as.integer(fitted(base_step_model ) > .5))
+baseStepCM = confusionMatrix(baseStepConfusion, as.factor(base_step_model$y), positive = "1")
+caretStepResults = data.frame(Accurarcy = baseStepCM$overall[['Accuracy']],
+                           ClassErrorRate = 1 - baseStepCM$overall[['Accuracy']],
+                           Precision = baseStepCM$byClass[['Precision']],
+                           Senstivity = baseStepCM$byClass[['Sensitivity']],
+                           Specificity = baseStepCM$byClass[['Specificity']],
+                           F1 = baseStepCM$byClass[['F1']])
+TotalConMatrix = rbind(caretResults, caretTransformResults, caretBackwardResults, caretStepResults)
+knitr::kable(TotalConMatrix)
+```
+
+After analyzing all our four models, we will be using the Base_Step_Model for our prediction.
+
+Because of the Observations we discussed.
+
+
+## Evalution 
+
+Finally, when we apply the Step model to the evalution data, it predicts there are 21 obs below the median crime rate and 19 above the median crime rate.
+
+```{r}
+
+eval_results = predict(base_step_model, newdata = test)
+table(as.integer(eval_results > .5))
+
+```
